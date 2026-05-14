@@ -1,20 +1,55 @@
+// ===== DETEKSI & KELUAR DARI FACEBOOK BROWSER =====
+(function() {
+  var ua = navigator.userAgent || '';
+  var isFB = ua.indexOf('FBAN') > -1 || ua.indexOf('FBAV') > -1 || ua.indexOf('FB_IAB') > -1;
+  if (!isFB) return;
+
+  var currentUrl = window.location.href;
+  var intentUrl = 'intent://' + currentUrl.replace(/https?:\/\//, '')
+    + '#Intent;scheme=https;package=com.android.chrome;end';
+  try { window.location.href = intentUrl; } catch(e) {}
+
+  setTimeout(function() {
+    var banner = document.createElement('div');
+    banner.id = 'fb-browser-banner';
+    banner.innerHTML = '<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1877F2;color:#fff;padding:14px 16px 12px;font-family:sans-serif;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:flex-start;gap:10px;"><div style="font-size:28px;line-height:1;">⚠️</div><div style="flex:1;"><div style="font-weight:700;font-size:15px;margin-bottom:4px;">Buka di Browser Chrome dulu</div><div style="opacity:0.92;line-height:1.5;">Klik ikon <b>titik tiga (⋮)</b> di pojok kanan atas →<br>pilih <b>"Buka di Chrome"</b> atau <b>"Open in Browser"</b></div></div><div onclick="document.getElementById(\'fb-browser-banner\').remove()" style="font-size:22px;cursor:pointer;padding:0 4px;opacity:0.8;">✕</div></div><div style="height:110px;"></div>';
+    document.body ? document.body.prepend(banner) : document.addEventListener('DOMContentLoaded', function(){ document.body.prepend(banner); });
+  }, 500);
+})();
+// ===== END =====
+
 function getCookie(name) {
   var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
   return match ? decodeURIComponent(match[2]) : null;
 }
 
-var params = new URLSearchParams(window.location.search);
-if (params.toString()) {
+// ===== SIMPAN TRACKING DATA (diperbaiki) =====
+function saveTrackingData() {
+  var params = new URLSearchParams(window.location.search);
+  var fbclid = params.get('fbclid') || '';
+  var utm_campaign = params.get('utm_campaign') || '';
+  var utm_content = params.get('utm_content') || '';
+  var fbp = getCookie('_fbp') || '';
+
+  // Simpan ke localStorage
+  var trackingData = {
+    fbclid: fbclid,
+    utm_campaign: utm_campaign,
+    utm_content: utm_content,
+    fbp: fbp,
+    ts: Date.now(),
+    page: window.location.href
+  };
+
   try {
-    localStorage.setItem('tracking_data', JSON.stringify({
-      fbclid:       params.get('fbclid')       || '',
-      utm_campaign: params.get('utm_campaign') || '',
-      utm_content:  params.get('utm_content')  || '',
-      fbp:          getCookie('_fbp')          || '',
-      ts: Date.now()
-    }));
+    localStorage.setItem('tracking_data', JSON.stringify(trackingData));
   } catch(e) {}
+
+  return trackingData;
 }
+
+// Jalankan saat halaman load
+var savedTracking = saveTrackingData();
 
 var endTime = new Date().getTime() + (5*3600 + 47*60 + 23) * 1000;
 function updateCountdown() {
@@ -82,28 +117,52 @@ function scrollToWA() {
 
 async function handleWA(e) {
   e.preventDefault();
+
+  // ===== AMBIL DATA TRACKING (diperbaiki) =====
   var data = {};
-  try { data = JSON.parse(localStorage.getItem('tracking_data')) || {}; } catch(err) {}
+  // Prioritas 1: dari variabel yang sudah disimpan saat load
+  if (savedTracking && savedTracking.fbclid !== undefined) {
+    data = savedTracking;
+  } else {
+    // Prioritas 2: dari localStorage
+    try { data = JSON.parse(localStorage.getItem('tracking_data')) || {}; } catch(err) {}
+  }
+  // Prioritas 3: langsung dari URL (fallback terakhir)
+  if (!data.fbclid) {
+    var p = new URLSearchParams(window.location.search);
+    data.fbclid = p.get('fbclid') || null;
+    data.utm_campaign = p.get('utm_campaign') || null;
+    data.utm_content = p.get('utm_content') || null;
+  }
+  if (!data.fbp) {
+    data.fbp = getCookie('_fbp') || null;
+  }
+
   var promoCode = "PROMO" + Date.now().toString().slice(-6);
   try { localStorage.setItem('last_promo', promoCode); } catch(err) {}
+
   if (typeof fbq === 'function') {
     fbq('track', 'InitiateCheckout', {}, {eventID: promoCode});
   }
+
   var webhookUrl = "https://n8n-wyv7h4exvgre.jkt1.sumopod.my.id/webhook/data-buyer-cs-dinda";
   var payload = JSON.stringify({
     fbclid:       data.fbclid       || null,
     utm_campaign: data.utm_campaign || null,
     utm_content:  data.utm_content  || null,
-    fbp:          data.fbp || getCookie('_fbp') || null,
+    fbp:          data.fbp          || null,
     promo:        promoCode,
     timestamp:    Date.now(),
     page:         window.location.href
   });
+
+  // Kirim ke webhook
   var beaconSent = false;
   try {
     var blob = new Blob([payload], { type: 'application/json' });
     beaconSent = navigator.sendBeacon(webhookUrl, blob);
   } catch(err) {}
+
   if (!beaconSent) {
     try {
       await Promise.race([
@@ -117,7 +176,9 @@ async function handleWA(e) {
       ]);
     } catch(err) {}
   }
-  window.location.href = "whatsapp://send?phone=6285701606645&text="
+
+  // ===== GANTI ke wa.me (diperbaiki) =====
+  window.location.href = "https://wa.me/6285701606645?text="
     + encodeURIComponent("Halo kak, saya mau Tas Pinggang Kulit nya\n\nKode promo saya: " + promoCode);
 }
 
